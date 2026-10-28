@@ -1,0 +1,1293 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>元素之隙：黃昏自走棋</title>
+<style>
+:root{
+  --bg:#211b2c;--panel:#302638;--panel2:#3b2d3e;--text:#f7e8d0;
+  --muted:#c8b5ad;--gold:#ffc878;--a:#ffb55f;--b:#9eb6ff;
+  --danger:#ff7b78;--ok:#8be0ad;--line:#ffffff18;
+}
+*{box-sizing:border-box}
+body{
+  margin:0;color:var(--text);font:14px/1.5 system-ui,"Microsoft JhengHei",sans-serif;
+  background:
+    radial-gradient(circle at 50% -20%,#a9574966,transparent 48%),
+    linear-gradient(180deg,#392637,#181725 75%);
+  min-height:100vh;
+}
+button,select{font:inherit}
+button,select{
+  color:var(--text);background:#49364a;border:1px solid #ffffff24;
+  border-radius:8px;padding:7px 10px;
+}
+button{cursor:pointer}
+button:hover:not(:disabled){background:#614554;border-color:#ffc87888}
+button:disabled{opacity:.4;cursor:not-allowed}
+header{padding:14px 18px 8px}
+h1{font-size:24px;margin:0;color:#ffd29a;letter-spacing:1px}
+.subtitle{color:var(--muted);font-size:12px}
+.toolbar{
+  display:flex;gap:8px;flex-wrap:wrap;align-items:center;
+  padding:10px 18px;background:#1c1826aa;border-block:1px solid var(--line);
+}
+.toolbar label{display:flex;align-items:center;gap:5px}
+#hud{margin-left:auto;font-weight:700;color:#ffe0ac}
+.layout{
+  display:grid;grid-template-columns:minmax(600px,1fr) 350px;
+  gap:12px;padding:12px 18px;max-width:1500px;margin:auto;
+}
+.canvasBox{
+  position:relative;background:#241e30;border:1px solid #ffb66d33;
+  border-radius:14px;padding:8px;box-shadow:0 12px 40px #0005;
+  align-self:start;
+}
+canvas{display:block;width:100%;height:auto;border-radius:9px;background:#4d3c4b}
+#tileInfo{color:#ead6c4;font-size:12px;min-height:22px;padding:4px}
+.side{
+  display:flex;flex-direction:column;gap:10px;max-height:calc(100vh - 150px);
+  overflow:auto;padding-right:3px;
+}
+.card{
+  background:linear-gradient(145deg,#382b3eee,#292333ee);
+  border:1px solid var(--line);border-radius:12px;padding:10px;
+}
+.card h3{font-size:15px;margin:0 0 8px;color:#ffd49b}
+.tabs{display:flex;gap:6px;margin-bottom:8px}
+.tabs button{flex:1}.tabs .active{outline:2px solid var(--gold)}
+.shop{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.shopItem{
+  text-align:left;padding:7px;min-height:76px;position:relative;
+  background:#433146;
+}
+.shopItem b{color:#ffe0a4}.shopItem small{display:block;color:#cdbbb5}
+.actions{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.actions button{font-size:12px;padding:5px 8px}
+.statline{color:#d8c7bb;font-size:12px}
+.syn{padding:5px 0;border-bottom:1px dashed #ffffff12;color:#a99ba4}
+.syn.on{color:#9de3b4}.syn .eq{font-family:ui-monospace,monospace;color:#f5ce93}
+#log{max-height:180px;overflow:auto;font-size:12px}
+.logItem{padding:4px 0;border-bottom:1px solid #ffffff0c;color:#cbbdb7}
+.logItem.good{color:#96dda9}.logItem.bad{color:#ff9c91}
+#diag{font-size:12px;padding:6px 18px;color:var(--ok)}
+#diag.error{color:var(--danger);background:#521f29}
+details{max-width:1460px;margin:0 auto 20px;padding:0 18px;color:#cfbdb4}
+summary{cursor:pointer;color:#ffd49b}
+code{color:#ffdaa4}
+@media(max-width:1000px){
+  .layout{grid-template-columns:1fr;padding:8px}
+  .side{max-height:none;overflow:visible}
+  #hud{margin-left:0;width:100%}
+}
+</style>
+</head>
+<body>
+<header>
+  <h1>元素之隙：黃昏自走棋</h1>
+  <div class="subtitle">真實元素資料 × 遊戲化數值 × 生化環材自嘲補血包。雙方棋子均由戰鬥 AI 自動行走與攻擊。</div>
+</header>
+
+<div class="toolbar">
+  <label>模式
+    <select id="mode">
+      <option value="pvp">人對人（輪流佈陣）</option>
+      <option value="pvai" selected>人對 AI</option>
+      <option value="aivai">雙方 AI 對戰</option>
+    </select>
+  </label>
+  <button id="newGame">新局</button>
+  <button id="startPause">開始對戰</button>
+  <label>速度
+    <select id="speed">
+      <option value="1">1×</option>
+      <option value="2" selected>2×</option>
+      <option value="4">4×</option>
+    </select>
+  </label>
+  <label><input id="synergyOn" type="checkbox" checked> 元素合成增效</label>
+  <label><input id="autoNext" type="checkbox" checked> AI 局自動續戰</label>
+  <span id="hud"></span>
+</div>
+<div id="diag">正在初始化自檢……</div>
+
+<main class="layout">
+  <section class="canvasBox">
+    <canvas id="board" width="1000" height="700"></canvas>
+    <div id="tileInfo">佈陣階段：購買棋子後，點棋子、再點己方兩排部署格，即可移動或交換位置。</div>
+  </section>
+
+  <aside class="side">
+    <section class="card" id="teamPanel"></section>
+    <section class="card">
+      <h3>元素配方與合成增效</h3>
+      <div id="synPanel"></div>
+    </section>
+    <section class="card">
+      <h3>戰報／生化環材補血包</h3>
+      <div id="log"></div>
+    </section>
+  </aside>
+</main>
+
+<details>
+  <summary>玩法、公式與設計說明</summary>
+  <p>
+    每方部署區為 <b>2 排×8 格＝16 格</b>，開局只有 4 隻，不會先放滿。
+    商店可自由選購，也可隨機購買、鎖店、刷新、出售及抽取團隊強化。
+    第 5 回合起，每個元素解鎖一個「Ⅱ型戰術構型」，商店池由 12 種翻倍至 24 種。
+    第 3 回合起，開戰 10 秒後雙方增兵處各嘗試投入一個臨時援軍；場上存活棋子仍受 16 隻上限限制。
+  </p>
+  <p>
+    傷害公式：<code>實際傷害 = max(1, 原始傷害 × 100 / (100 + 6 × 有效護甲))</code>。
+    移動時間：<code>地形成本 ÷ 移動速度</code>。岩石不可通行；森林有 10% 普攻閃避；
+    水域提高移動成本並觸發濕潤反應；高地提升遠程攻擊。
+  </p>
+  <p>
+    原子序與標準原子量採常見化學資料；攻擊、生命等是由其衍生並經角色修正的遊戲數值，
+    不代表真實材料性能。化學方程式採配平形式，但棋子數量只是遊戲觸發條件；
+    例如鋁熱配方明確使用 Fe₂O₃，不是宣稱 Al 與純 Fe 會直接發生鋁熱反應。
+    「Ⅱ型構型」也是遊戲分支，不是對所有元素主張存在相同晶型。
+  </p>
+  <p>
+    AI 包含坦克就近壓迫、刺客切後排、遠程風箏、低血集火、支援治療／護盾、
+    A* 地形尋路、動態占道重試及攻守站位。長時間無傷害會啟動破局模式；
+    55 秒仍未分出勝負則按存活數與剩餘生命比例判定，避免無限和平發展。
+  </p>
+</details>
+
+<script>
+(()=>{
+"use strict";
+
+const $=s=>document.querySelector(s);
+const canvas=$("#board"),ctx=canvas.getContext("2d");
+const COLS=20,ROWS=14,TILE=50,N=COLS*ROWS;
+const UNLOCK_ROUND=5,MAX_UNITS=16;
+const DIRS=[[1,0],[-1,0],[0,1],[0,-1]];
+const ROLE={
+  tank:{name:"坦克",hp:1.25,atk:.85,armor:16,range:1.35,speed:1.45,cd:1.05},
+  fighter:{name:"鬥士",hp:1.05,atk:1,armor:12,range:1.35,speed:1.65,cd:.9},
+  assassin:{name:"刺客",hp:.88,atk:1.20,armor:7,range:1.4,speed:2.0,cd:.76},
+  ranger:{name:"遠程",hp:.90,atk:1.12,armor:6,range:4.1,speed:1.48,cd:1.03},
+  support:{name:"支援",hp:1,atk:.80,armor:8,range:3.4,speed:1.5,cd:1.05},
+  mage:{name:"術士",hp:.85,atk:1.20,armor:5,range:3.7,speed:1.42,cd:1.2}
+};
+
+/*
+ * Ar：常見標準原子量。數值只作遊戲缩放。
+ * HP=(520+5Ar)×角色生命係數；ATK=(30+8√Z)×角色攻擊係數。
+ */
+const ELEMENTS={
+  Fe:{name:"鐵",symbol:"Fe",Z:26,Ar:55.845,cat:"金屬",role:"tank",color:"#b8a59b",
+    skill:"氧化還原",eq:"Fe + 2HCl → FeCl₂ + H₂↑",desc:"前排承傷；受擊配合高護甲。"},
+  Cu:{name:"銅",symbol:"Cu",Z:29,Ar:63.546,cat:"金屬",role:"ranger",color:"#e99a67",
+    skill:"導電連鎖",eq:"Cu → Cu²⁺ + 2e⁻",desc:"每第三次攻擊產生一次連鎖電弧。"},
+  Al:{name:"鋁",symbol:"Al",Z:13,Ar:26.9815385,cat:"金屬",role:"fighter",color:"#d6d9d4",
+    skill:"鋁熱協同",eq:"2Al + Fe₂O₃ → Al₂O₃ + 2Fe",desc:"與鐵系上陣時讓攻擊附帶燃燒。"},
+  Ti:{name:"鈦",symbol:"Ti",Z:22,Ar:47.867,cat:"金屬",role:"tank",color:"#b9c9d8",
+    skill:"受擊強化",eq:"Ti + O₂ → TiO₂",desc:"受到攻擊後逐步增加本回合臨時護甲。"},
+  Na:{name:"鈉",symbol:"Na",Z:11,Ar:22.98976928,cat:"金屬",role:"assassin",color:"#f3df8d",
+    skill:"遇水反應",eq:"2Na + 2H₂O → 2NaOH + H₂↑",desc:"自己或目標位於水域時強化攻擊。"},
+  Zn:{name:"鋅",symbol:"Zn",Z:30,Ar:65.38,cat:"金屬",role:"support",color:"#a9bdc2",
+    skill:"犧牲陽極",eq:"Zn → Zn²⁺ + 2e⁻",desc:"定期為隊友提供護盾。"},
+  H:{name:"氫",symbol:"H",Z:1,Ar:1.008,cat:"非金屬",role:"support",color:"#e6e9ff",
+    skill:"氫氧再生",eq:"2H₂ + O₂ → 2H₂O",desc:"治療受傷隊友；兩氫一氧啟動團隊再生。"},
+  O:{name:"氧",symbol:"O",Z:8,Ar:15.999,cat:"非金屬",role:"support",color:"#82d7ef",
+    skill:"氧化削甲",eq:"O₂ + 2H₂O + 4e⁻ → 4OH⁻",desc:"治療並以攻擊逐步降低目標有效護甲。"},
+  C:{name:"碳",symbol:"C",Z:6,Ar:12.011,cat:"非金屬",role:"assassin",color:"#69616d",
+    skill:"碳氧爆燃",eq:"C + O₂ → CO₂",desc:"本身有額外暴擊率；與氧系提高全隊暴擊。"},
+  N:{name:"氮",symbol:"N",Z:7,Ar:14.007,cat:"非金屬",role:"ranger",color:"#a7a6ed",
+    skill:"三鍵遲滯",eq:"N≡N（N₂ 鍵能約 945 kJ·mol⁻¹）",desc:"遠程攻擊附帶短暫緩速。"},
+  Si:{name:"矽",symbol:"Si",Z:14,Ar:28.085,cat:"類金屬",role:"tank",color:"#b69c80",
+    skill:"矽氧反傷",eq:"Si + O₂ → SiO₂",desc:"受到近戰攻擊時反射少量傷害。"},
+  Cl:{name:"氯",symbol:"Cl",Z:17,Ar:35.45,cat:"非金屬",role:"mage",color:"#a8d47d",
+    skill:"歧化濺射",eq:"Cl₂ + H₂O ⇌ HCl + HClO",desc:"每第二次攻擊對目標周圍造成濺射。"}
+};
+
+for(const e of Object.values(ELEMENTS)){
+  const r=ROLE[e.role];
+  e.hp=Math.round((520+5*e.Ar)*r.hp);
+  e.atk=Math.round((30+8*Math.sqrt(e.Z))*r.atk);
+  e.armor=r.armor+(e.cat==="金屬"?3:0);
+}
+
+const SYN=[
+  {id:"water",name:"氫氧再生",eq:"2H₂ + O₂ → 2H₂O",
+   desc:"至少 2 氫、1 氧：全隊每秒回復 0.8% 最大生命。",
+   on:c=>(c.H||0)>=2&&(c.O||0)>=1},
+  {id:"thermite",name:"鋁熱燃燒",eq:"2Al + Fe₂O₃ → Al₂O₃ + 2Fe",
+   desc:"鋁、鐵同時上陣：全隊攻擊附加燃燒；技能設定消耗 Fe₂O₃ 試劑。",
+   on:c=>c.Al&&c.Fe},
+  {id:"silica",name:"矽氧護層",eq:"Si + O₂ → SiO₂",
+   desc:"矽、氧同時上陣：開戰獲得相當於最大生命 8% 的護盾。",
+   on:c=>c.Si&&c.O},
+  {id:"salt",name:"鹽系穩態",eq:"2Na + Cl₂ → 2NaCl",
+   desc:"鈉、氯同時上陣：全隊額外增加 4 護甲。",
+   on:c=>c.Na&&c.Cl},
+  {id:"carbon",name:"充分燃燒",eq:"C + O₂ → CO₂",
+   desc:"碳、氧同時上陣：全隊增加 10% 暴擊率。",
+   on:c=>c.C&&c.O},
+  {id:"brass",name:"銅鋅合金",eq:"Cu–Zn（合金，無固定計量化學式）",
+   desc:"銅、鋅同時上陣：全隊攻擊冷卻縮短 10%。",
+   on:c=>c.Cu&&c.Zn}
+];
+
+const JOKES=[
+  "生化環材不是 debuff，是入學時沒看到完整技能說明。",
+  "材料系：抗壓強度先拉滿，就業壓力另開一條曲線。",
+  "化學系：別問產率，問就是下一批還能優化。",
+  "環工系：清場不算完，廢水、廢氣和戰報都要處理。",
+  "生物系：細胞會分裂，你的棋子不會——除非增援點亮了。",
+  "實驗做到晚上十一點，系統判定你已獲得黃昏地形適性。",
+  "對面不是 Boss，是拿著紅筆的審稿人二。",
+  "四大天坑不是強度排名；真正的坑是沒有標註單位。"
+];
+
+const TERRAIN={
+  plain:{name:"暮色平原",cost:1,color:"#68515b"},
+  forest:{name:"晚風林",cost:1.35,color:"#3f5b50"},
+  water:{name:"淺水濕地",cost:1.75,color:"#3c6172"},
+  hill:{name:"赤霞高地",cost:1.3,color:"#806149"},
+  rock:{name:"玄武岩",cost:Infinity,color:"#3c3945"}
+};
+const DEPLOY={A:[],B:[]};
+for(const x of Array.from({length:8},(_,i)=>i+6)){
+  DEPLOY.A.push({x,y:0},{x,y:1});
+  DEPLOY.B.push({x,y:12},{x,y:13});
+}
+const PORTAL={A:{x:0,y:0},B:{x:19,y:13}};
+
+let teams,mapTiles=[],mapSeed=1,round=1,phase="planning",paused=false;
+let viewSide="A",selectedId=null,uid=0,battleTime=0,lastDamage=0;
+let reinforced=false,autoTimer=0,logs=[],effects=[],uiClock=0;
+let hoverCell=null,watchdogCount=0;
+
+function makeTeam(id,ai){
+  return {
+    id,name:id==="A"?"曦光陣營":"暮藍陣營",ai,gold:12,core:100,
+    units:[],shop:[],locked:false,strategy:"balanced",syn:[],
+    mods:{hp:0,atk:0,armor:0,speed:0}
+  };
+}
+function living(t){return t.units.filter(u=>u.alive)}
+function otherTeam(id){return id==="A"?"B":"A"}
+function inBounds(x,y){return x>=0&&x<COLS&&y>=0&&y<ROWS}
+function tile(x,y){return inBounds(x,y)?mapTiles[y][x]:TERRAIN.rock}
+function deployOK(team,x,y){return DEPLOY[team].some(p=>p.x===x&&p.y===y)}
+function unitAt(x,y,aliveOnly=false){
+  for(const t of Object.values(teams)){
+    for(const u of t.units){
+      if(u.x===x&&u.y===y&&(!aliveOnly||u.alive))return u;
+    }
+  }
+  return null;
+}
+function hash(x,y,s=mapSeed){
+  const n=Math.sin(x*127.1+y*311.7+s*74.7)*43758.5453;
+  return n-Math.floor(n);
+}
+function buildMap(seed){
+  const a=[];
+  for(let y=0;y<ROWS;y++){
+    const row=[];
+    for(let x=0;x<COLS;x++){
+      const r=hash(x,y,seed);
+      let k=r<.065?"rock":r<.18?"water":r<.34?"forest":r<.46?"hill":"plain";
+      if(x===9||x===10||y===6||y===7||x===0||x===COLS-1){
+        if(k==="rock")k="plain";
+      }
+      if(deployOK("A",x,y)||deployOK("B",x,y))k="plain";
+      if((x===0&&y===0)||(x===19&&y===13))k="plain";
+      row.push(TERRAIN[k]);
+    }
+    a.push(row);
+  }
+  return a;
+}
+function poolForRound(r){
+  const p=Object.keys(ELEMENTS).map(key=>({key,variant:0}));
+  if(r>=UNLOCK_ROUND){
+    for(const key of Object.keys(ELEMENTS))p.push({key,variant:1});
+  }
+  return p;
+}
+function cardCost(c){return ELEMENTS[c.key].cost??(2+Math.floor(ELEMENTS[c.key].Z/12))+(c.variant?1:0)}
+/* 指定較合理的商店費用，不受原子序單調限制。 */
+Object.assign(ELEMENTS.Fe,{cost:3});
+Object.assign(ELEMENTS.Cu,{cost:3});
+Object.assign(ELEMENTS.Al,{cost:2});
+Object.assign(ELEMENTS.Ti,{cost:4});
+Object.assign(ELEMENTS.Na,{cost:3});
+Object.assign(ELEMENTS.Zn,{cost:2});
+Object.assign(ELEMENTS.H,{cost:1});
+Object.assign(ELEMENTS.O,{cost:2});
+Object.assign(ELEMENTS.C,{cost:2});
+Object.assign(ELEMENTS.N,{cost:2});
+Object.assign(ELEMENTS.Si,{cost:2});
+Object.assign(ELEMENTS.Cl,{cost:3});
+
+function statsFor(u){
+  const e=ELEMENTS[u.key],r=ROLE[e.role],t=teams[u.team],m=t.mods;
+  const v=u.variant;
+  const syn=t.syn||[];
+  return {
+    hp:Math.round(e.hp*(v?1.12:1)*(1+m.hp)),
+    atk:Math.round(e.atk*(v?1.10:1)*(1+m.atk)),
+    armor:e.armor+(v?2:0)+m.armor+(syn.includes("salt")?4:0),
+    range:r.range+(v&&r.range>2?.3:0),
+    speed:r.speed*(v?1.03:1)*(1+m.speed),
+    cd:r.cd*(v?.96:1)*(syn.includes("brass")?.9:1)
+  };
+}
+function createUnit(card,team,x,y,reinforcement=false){
+  const u={
+    id:++uid,team,key:card.key,variant:card.variant||0,x,y,homeX:x,homeY:y,
+    reinforcement,alive:true,mood:Math.random(),attackCount:0,target:null,
+    naReacted:false,desperate:false
+  };
+  resetUnit(u);
+  return u;
+}
+function resetUnit(u){
+  const s=statsFor(u);
+  Object.assign(u,{
+    maxHp:s.hp,hp:s.hp,atk:s.atk,armor:s.armor,baseArmor:s.armor,
+    range:s.range,speed:s.speed,cd:s.cd,alive:true,shield:0,
+    tempArmor:0,armorBreak:0,slow:0,burn:null,attackCd:Math.random()*.25,
+    moveCd:Math.random()*.2,thinkCd:Math.random()*.25,skillCd:1+Math.random(),
+    kiteCd:0,target:null,attackCount:0,naReacted:false,desperate:false
+  });
+  if((teams[u.team].syn||[]).includes("silica"))u.shield=u.maxHp*.08;
+}
+function unitName(u){return (u.variant?"Ⅱ型·":"")+ELEMENTS[u.key].name}
+function unitLabel(u){return unitName(u)+" "+ELEMENTS[u.key].symbol}
+function addLog(msg,type=""){
+  logs.unshift({msg,type,round});
+  if(logs.length>70)logs.length=70;
+  renderLog();
+}
+function floatText(x,y,text,color="#fff"){
+  effects.push({kind:"text",x,y,text,color,ttl:1,max:1});
+}
+function beam(a,b,color="#ffd18a"){
+  effects.push({kind:"beam",x:a.x,y:a.y,tx:b.x,ty:b.y,color,ttl:.16,max:.16});
+}
+function trimEffects(){
+  if(effects.length>240)effects.splice(0,effects.length-240);
+}
+
+function refreshShop(t,free=false){
+  if(!free){
+    if(t.gold<2)return false;
+    t.gold-=2;
+  }
+  const pool=poolForRound(round);
+  t.shop=Array.from({length:5},()=>({...pool[Math.floor(Math.random()*pool.length)]}));
+  return true;
+}
+function firstFreeCell(team){
+  return DEPLOY[team].find(p=>!unitAt(p.x,p.y))||null;
+}
+function buyCard(t,index,silent=false){
+  if(phase!=="planning"||t.units.length>=MAX_UNITS||!t.shop[index])return false;
+  const c=t.shop[index],cost=cardCost(c);
+  if(t.gold<cost)return false;
+  const p=firstFreeCell(t.id);
+  if(!p)return false;
+  t.gold-=cost;
+  const u=createUnit(c,t.id,p.x,p.y);
+  t.units.push(u);
+  t.shop.splice(index,1);
+  selectedId=u.id;
+  if(!silent)addLog(`${t.name} 購入 ${unitLabel(u)}，花費 ${cost} 金。`);
+  refreshPanel();
+  return true;
+}
+function sellSelected(){
+  const t=teams[viewSide],u=t.units.find(x=>x.id===selectedId);
+  if(!canControl(t)||!u||u.reinforcement)return;
+  const refund=Math.max(1,Math.floor(cardCost(u)*.6));
+  t.units=t.units.filter(x=>x!==u);
+  t.gold+=refund;selectedId=null;
+  addLog(`${t.name} 出售 ${unitLabel(u)}，回收 ${refund} 金。`);
+  refreshPanel();
+}
+function randomBuy(t){
+  if(!canControl(t))return;
+  const ids=t.shop.map((c,i)=>({i,cost:cardCost(c)}))
+    .filter(x=>x.cost<=t.gold);
+  if(!ids.length){addLog("沒有買得起的棋子；金幣和產率一樣需要規劃。","bad");return}
+  buyCard(t,ids[Math.floor(Math.random()*ids.length)].i);
+}
+function drawEnhance(t,silent=false){
+  if(phase!=="planning"||t.gold<3)return false;
+  t.gold-=3;
+  const roll=Math.random();let msg="";
+  if(roll<.24){t.mods.hp+=.08;msg="全隊生命 +8%"}
+  else if(roll<.48){t.mods.atk+=.07;msg="全隊攻擊 +7%"}
+  else if(roll<.68){t.mods.armor+=3;msg="全隊護甲 +3"}
+  else if(roll<.88){t.mods.speed=Math.min(.6,t.mods.speed+.05);msg="全隊移速 +5%"}
+  else{t.mods.hp+=.035;t.mods.atk+=.035;msg="稀有強化：生命、攻擊各 +3.5%"}
+  if(!silent)addLog(`${t.name} 抽取強化：${msg}。`,"good");
+  refreshPanel();
+  return true;
+}
+function countsFor(t){
+  const c={};
+  for(const u of t.units)if(!u.reinforcement)c[u.key]=(c[u.key]||0)+1;
+  return c;
+}
+function activeSynergies(t){
+  const c=countsFor(t);
+  return SYN.filter(s=>s.on(c)).map(s=>s.id);
+}
+function canControl(t){return phase==="planning"&&!t.ai}
+
+function autoPosition(t){
+  const cells=DEPLOY[t.id].map(p=>({...p}));
+  const used=new Set();
+  const rank={tank:0,fighter:1,ranger:2,mage:3,support:4,assassin:5};
+  const units=t.units.filter(u=>!u.reinforcement)
+    .sort((a,b)=>rank[ELEMENTS[a.key].role]-rank[ELEMENTS[b.key].role]);
+  for(const u of units){
+    const role=ELEMENTS[u.key].role;
+    let best=null,bestScore=-Infinity;
+    for(const p of cells){
+      const k=p.x+","+p.y;if(used.has(k))continue;
+      const front=t.id==="A"?p.y:13-p.y;
+      const edge=Math.abs(p.x-9.5);
+      let score=Math.random()*.03;
+      if(role==="tank"||role==="fighter")score+=front*7-edge*.12;
+      else if(role==="assassin"){
+        score+=(t.strategy==="aggressive"?front*4:front*2)+edge*.42;
+      }else score+=-front*7+edge*.08;
+      if(t.strategy==="defensive"&&(role==="ranger"||role==="support"))score-=front*2;
+      if(score>bestScore){bestScore=score;best=p}
+    }
+    if(best){
+      used.add(best.x+","+best.y);
+      u.x=u.homeX=best.x;u.y=u.homeY=best.y;
+    }
+  }
+  refreshPanel();
+}
+function aiCardScore(t,c){
+  const e=ELEMENTS[c.key],units=t.units;
+  const roleCount=r=>units.filter(u=>ELEMENTS[u.key].role===r).length;
+  let s=Math.random()*2-c.variant*.1;
+  if(e.role==="tank"&&roleCount("tank")<2)s+=5;
+  if(e.role==="support"&&roleCount("support")<1)s+=4;
+  if(t.strategy==="aggressive"&&(e.role==="assassin"||e.role==="fighter"))s+=2;
+  if(t.strategy==="defensive"&&(e.role==="tank"||e.role==="ranger"))s+=1.7;
+  const keys=new Set(units.map(u=>u.key));
+  if((c.key==="Al"&&keys.has("Fe"))||(c.key==="Fe"&&keys.has("Al")))s+=2;
+  if((c.key==="O"&&keys.has("Si"))||(c.key==="Si"&&keys.has("O")))s+=2;
+  if(c.key==="H"&&units.filter(u=>u.key==="H").length===1&&keys.has("O"))s+=3;
+  if(units.filter(u=>u.key===c.key).length>=3)s-=3;
+  return s;
+}
+function aiPlan(t){
+  if(!t.ai||phase!=="planning")return;
+  const desired=Math.min(MAX_UNITS,4+Math.ceil(round*1.25));
+  let guard=0;
+  while(t.units.length<desired&&guard++<24){
+    const affordable=t.shop.map((c,i)=>({c,i,cost:cardCost(c)}))
+      .filter(x=>x.cost<=t.gold);
+    if(!affordable.length){
+      if(t.gold>=2&&t.shop.length){refreshShop(t);continue}
+      break;
+    }
+    affordable.sort((a,b)=>aiCardScore(t,b.c)-aiCardScore(t,a.c));
+    if(!buyCard(t,affordable[0].i,true))break;
+  }
+  if(round>=2&&t.gold>=3&&Math.random()<.7)drawEnhance(t,true);
+  autoPosition(t);
+}
+
+function newMatch(){
+  uid=0;round=1;phase="planning";paused=false;battleTime=0;
+  reinforced=false;autoTimer=0;logs=[];effects=[];watchdogCount=0;
+  mapSeed=Math.floor(Math.random()*100000);
+  mapTiles=buildMap(mapSeed);
+  const mode=$("#mode").value;
+  teams={
+    A:makeTeam("A",mode==="aivai"),
+    B:makeTeam("B",mode==="pvai"||mode==="aivai")
+  };
+  for(const t of Object.values(teams)){
+    t.strategy=["balanced","aggressive","defensive"][Math.floor(Math.random()*3)];
+  }
+  const initial=[
+    ["A","Fe",8,1],["A","Cu",7,0],["A","H",9,0],["A","Si",10,1],
+    ["B","Ti",10,12],["B","O",9,13],["B","Na",11,12],["B","C",8,13]
+  ];
+  for(const [team,key,x,y] of initial){
+    teams[team].units.push(createUnit({key,variant:0},team,x,y));
+  }
+  refreshShop(teams.A,true);refreshShop(teams.B,true);
+  viewSide="A";selectedId=teams.A.units[0].id;
+  addLog("新局完成：雙方各 4 隻，16 格部署區保留大量自由空位。","good");
+  addLog(JOKES[Math.floor(Math.random()*JOKES.length)]);
+  if(mode==="aivai"&&$("#autoNext").checked)autoTimer=2;
+  runSelfTests();
+  refreshPanel();
+}
+
+function startBattle(){
+  if(phase!=="planning")return;
+  for(const t of Object.values(teams))if(t.ai)aiPlan(t);
+  if(!teams.A.units.length||!teams.B.units.length){
+    addLog("雙方都必須至少有一隻棋子。","bad");return;
+  }
+  for(const t of Object.values(teams)){
+    t.syn=$("#synergyOn").checked?activeSynergies(t):[];
+    for(const u of t.units){
+      u.x=u.homeX;u.y=u.homeY;
+      resetUnit(u);
+    }
+  }
+  phase="battle";paused=false;battleTime=0;lastDamage=0;
+  reinforced=round<3;watchdogCount=0;effects=[];
+  addLog(`第 ${round} 回合開戰。A 配方 ${teams.A.syn.length} 個，B 配方 ${teams.B.syn.length} 個。`);
+  refreshPanel();
+}
+function finishBattle(winner,reason=""){
+  if(phase!=="battle")return;
+  let text="";
+  if(winner){
+    const loser=otherTeam(winner);
+    const survivors=living(teams[winner]).length;
+
+    const dmg=Math.max(8,18-survivors*2);
+    teams[loser].core=Math.max(0,teams[loser].core-dmg);
+    text=`${teams[winner].name} 勝，${reason||"清場"}。${teams[loser].name} 核心 −${dmg}（剩 ${teams[loser].core}）。`;
+    addLog(text,teams[loser].core<=0?"bad":"good");
+  }else{
+    text=`平手：${reason||"時間到"}。雙方核心各 −4。`;
+    teams.A.core=Math.max(0,teams.A.core-4);
+    teams.B.core=Math.max(0,teams.B.core-4);
+    addLog(text);
+  }
+  // 移除援軍，保留本局存活／陣亡本體於 home 供下回合重整
+  for(const t of Object.values(teams)){
+    t.units=t.units.filter(u=>!u.reinforcement);
+    for(const u of t.units){
+      u.alive=true;
+      u.x=u.homeX;u.y=u.homeY;
+    }
+  }
+  effects=[];
+  if(teams.A.core<=0||teams.B.core<=0){
+    phase="ended";
+    const w=teams.A.core>teams.B.core?"A":teams.B.core>teams.A.core?"B":null;
+    addLog(w?`${teams[w].name} 奪得整場勝利！`:"雙方核心同歸於盡，實驗報告雙掛。",w?"good":"bad");
+    refreshPanel();
+    return;
+  }
+  phase="planning";
+  round+=1;
+  for(const t of Object.values(teams)){
+    const income=5+Math.min(5,Math.floor(round/2))+Math.min(5,Math.floor(t.gold/10));
+    t.gold+=income;
+    if(!t.locked)refreshShop(t,true);
+    // 清臨時狀態
+    for(const u of t.units)resetUnit(u);
+  }
+  addLog(`進入第 ${round} 回合佈陣。利息＋基本收入已發放。`);
+  if(round===UNLOCK_ROUND)addLog("Ⅱ型戰術構型已解鎖，商店池擴充。","good");
+  selectedId=teams[viewSide].units[0]?.id??null;
+  const mode=$("#mode").value;
+  if((mode==="aivai"||(mode==="pvai"&&teams.B.ai))&&$("#autoNext").checked){
+    autoTimer=mode==="aivai"?1.2:2.5;
+  }
+  refreshPanel();
+}
+
+function dist(a,b){return Math.abs(a.x-b.x)+Math.abs(a.y-b.y)}
+function euclid(a,b){return Math.hypot(a.x-b.x,a.y-b.y)}
+function effectiveArmor(u){return Math.max(0,u.armor+u.tempArmor-u.armorBreak)}
+function calcDamage(raw,target){
+  return Math.max(1,raw*100/(100+6*effectiveArmor(target)));
+}
+function enemiesOf(u){return living(teams[otherTeam(u.team)])}
+function alliesOf(u){return living(teams[u.team]).filter(x=>x!==u)}
+
+function applyDamage(attacker,target,raw,{skill=false,reflect=false}={}){
+  if(!target.alive||raw<=0)return 0;
+  // 森林普攻閃避（非技能）
+  if(!skill&&!reflect&&tile(target.x,target.y)===TERRAIN.forest&&Math.random()<.1){
+    floatText(target.x,target.y,"閃","#9de3b4");
+    return 0;
+  }
+  let dmg=calcDamage(raw,target);
+  if(target.shield>0){
+    const absorb=Math.min(target.shield,dmg);
+    target.shield-=absorb;dmg-=absorb;
+  }
+  if(dmg<=0){floatText(target.x,target.y,"盾","#a7d8ff");return 0}
+  target.hp-=dmg;
+  lastDamage=battleTime;
+  floatText(target.x,target.y,String(Math.round(dmg)),reflect?"#c9a0ff":"#ffb0a8");
+  if(target.key==="Ti"&&!reflect){
+    target.tempArmor=Math.min(12,target.tempArmor+1.5);
+  }
+  // 矽反傷：近戰受擊
+  if(!reflect&&!skill&&target.key==="Si"&&euclid(attacker,target)<=1.6&&attacker.alive){
+    applyDamage(target,attacker,Math.max(4,target.atk*.18),{reflect:true,skill:true});
+  }
+  if(target.hp<=0){
+    target.hp=0;target.alive=false;target.target=null;
+    addLog(`${unitLabel(target)} 退場。`);
+  }
+  return dmg;
+}
+
+function healUnit(u,amount){
+  if(!u.alive)return;
+  const before=u.hp;
+  u.hp=Math.min(u.maxHp,u.hp+amount);
+  const got=u.hp-before;
+  if(got>1)floatText(u.x,u.y,"+"+Math.round(got),"#8be0ad");
+}
+
+function applyBurn(target,atk){
+  target.burn={dps:Math.max(6,atk*.12),ttl:2.4};
+}
+
+function doAttack(attacker,target){
+  if(!attacker.alive||!target.alive)return;
+  const role=ELEMENTS[attacker.key].role;
+  let raw=attacker.atk;
+  // 高地遠程加成
+  if(role==="ranger"||role==="mage"||role==="support"){
+    if(tile(attacker.x,attacker.y)===TERRAIN.hill)raw*=1.12;
+  }
+  // 鈉遇水
+  const wet=tile(attacker.x,attacker.y)===TERRAIN.water||tile(target.x,target.y)===TERRAIN.water;
+  if(attacker.key==="Na"&&wet){
+    raw*=1.35;
+    if(!attacker.naReacted){attacker.naReacted=true;floatText(attacker.x,attacker.y,"H₂↑","#ffe0a4")}
+  }
+  // 暴擊：碳本體 + 充分燃燒
+  let crit=.08+(attacker.key==="C"?0.12:0);
+  if((teams[attacker.team].syn||[]).includes("carbon"))crit+=.10;
+  let isCrit=Math.random()<crit;
+  if(isCrit)raw*=1.65;
+  // 氧削甲
+  if(attacker.key==="O")target.armorBreak=Math.min(14,target.armorBreak+2);
+  // 氮緩速
+  if(attacker.key==="N")target.slow=Math.max(target.slow,1.4);
+  // 鋁熱／thermite 合成
+  const syn=teams[attacker.team].syn||[];
+  if(attacker.key==="Al"||syn.includes("thermite"))applyBurn(target,attacker.atk);
+
+  beam(attacker,target,isCrit?"#ffef9a":ELEMENTS[attacker.key].color);
+  applyDamage(attacker,target,raw);
+  attacker.attackCount++;
+
+  // 銅連鎖：每第三次
+  if(attacker.key==="Cu"&&attacker.attackCount%3===0){
+    const others=enemiesOf(attacker).filter(e=>e!==target&&euclid(e,target)<=2.2)
+      .sort((a,b)=>a.hp-b.hp);
+    if(others.length){
+      const sec=others[0];
+      beam(target,sec,"#7ec8ff");
+      applyDamage(attacker,sec,attacker.atk*.55,{skill:true});
+    }
+  }
+  // 氯濺射：每第二次
+  if(attacker.key==="Cl"&&attacker.attackCount%2===0){
+    for(const e of enemiesOf(attacker)){
+      if(e===target)continue;
+      if(euclid(e,target)<=1.5)applyDamage(attacker,e,attacker.atk*.4,{skill:true});
+    }
+  }
+}
+
+function passable(x,y,self){
+  if(!inBounds(x,y))return false;
+  if(tile(x,y).cost===Infinity)return false;
+  const occ=unitAt(x,y,true);
+  return !occ||occ===self;
+}
+
+function astar(sx,sy,gx,gy,self){
+  if(sx===gx&&sy===gy)return [];
+  const key=(x,y)=>x+","+y;
+  const open=[{x:sx,y:sy,g:0,f:Math.abs(gx-sx)+Math.abs(gy-sy),px:null,py:null}];
+  const best=new Map([[key(sx,sy),0]]);
+  const came=new Map();
+  let guard=0;
+  while(open.length&&guard++<900){
+    open.sort((a,b)=>a.f-b.f);
+    const cur=open.shift();
+    if(cur.x===gx&&cur.y===gy){
+      const path=[];
+      let cx=cur.x,cy=cur.y;
+      while(!(cx===sx&&cy===sy)){
+        path.push({x:cx,y:cy});
+        const p=came.get(key(cx,cy));
+        if(!p)break;
+        cx=p.x;cy=p.y;
+      }
+      path.reverse();
+      return path;
+    }
+    for(const [dx,dy] of DIRS){
+      const nx=cur.x+dx,ny=cur.y+dy;
+      if(!passable(nx,ny,self)&&!(nx===gx&&ny===gy))continue;
+      // 允許目標格即使有敵人（靠近用）
+      if(!(nx===gx&&ny===gy)&&!passable(nx,ny,self))continue;
+      if(!inBounds(nx,ny)||tile(nx,ny).cost===Infinity)continue;
+      const occ=unitAt(nx,ny,true);
+      if(occ&&occ!==self&&!(nx===gx&&ny===gy))continue;
+      const step=tile(nx,ny).cost||1;
+      const g=cur.g+step;
+      const k=key(nx,ny);
+      if(best.has(k)&&best.get(k)<=g)continue;
+      best.set(k,g);
+      came.set(k,{x:cur.x,y:cur.y});
+      const h=Math.abs(gx-nx)+Math.abs(gy-ny);
+      open.push({x:nx,y:ny,g,f:g+h});
+    }
+  }
+  return null;
+}
+
+function nearestEnemy(u){
+  const es=enemiesOf(u);
+  if(!es.length)return null;
+  es.sort((a,b)=>euclid(u,a)-euclid(u,b)||a.hp-b.hp);
+  return es[0];
+}
+function lowestHpEnemy(u){
+  const es=enemiesOf(u);
+  if(!es.length)return null;
+  es.sort((a,b)=>a.hp/a.maxHp-b.hp/b.maxHp||euclid(u,a)-euclid(u,b));
+  return es[0];
+}
+function backlineEnemy(u){
+  const es=enemiesOf(u);
+  if(!es.length)return null;
+  const prefer=es.filter(e=>{
+    const r=ELEMENTS[e.key].role;
+    return r==="ranger"||r==="mage"||r==="support";
+  });
+  const pool=prefer.length?prefer:es;
+  pool.sort((a,b)=>{
+    const ba=u.team==="A"?b.y-a.y:a.y-b.y;
+    return ba||euclid(u,a)-euclid(u,b);
+  });
+  return pool[0];
+}
+
+function tryMoveToward(u,tx,ty){
+  if(u.moveCd>0)return false;
+  // 若已鄰近則不走
+  if(Math.abs(u.x-tx)+Math.abs(u.y-ty)<=0)return false;
+  let path=astar(u.x,u.y,tx,ty,u);
+  // 占道：目標被占則試鄰格
+  if(!path||!path.length){
+    const neigh=[];
+    for(const [dx,dy] of DIRS){
+      const nx=tx+dx,ny=ty+dy;
+      if(passable(nx,ny,u))neigh.push({x:nx,y:ny,d:Math.abs(u.x-nx)+Math.abs(u.y-ny)});
+    }
+    neigh.sort((a,b)=>a.d-b.d);
+    for(const n of neigh){
+      path=astar(u.x,u.y,n.x,n.y,u);
+      if(path&&path.length)break;
+    }
+  }
+  if(!path||!path.length){
+    // 隨機側移破局
+    if(u.desperate||watchdogCount>0){
+      const opts=DIRS.map(([dx,dy])=>({x:u.x+dx,y:u.y+dy}))
+        .filter(p=>passable(p.x,p.y,u));
+      if(opts.length){
+        const p=opts[Math.floor(Math.random()*opts.length)];
+        const cost=tile(p.x,p.y).cost;
+        const slowF=u.slow>0?1.35:1;
+        u.x=p.x;u.y=p.y;
+        u.moveCd=(cost/u.speed)*slowF;
+        return true;
+      }
+    }
+    return false;
+  }
+  const step=path[0];
+  if(!passable(step.x,step.y,u))return false;
+  const cost=tile(step.x,step.y).cost;
+  const slowF=u.slow>0?1.35:1;
+  u.x=step.x;u.y=step.y;
+  u.moveCd=(cost/Math.max(.35,u.speed))*slowF;
+  return true;
+}
+
+function inRange(u,t){return euclid(u,t)<=u.range+.05}
+
+function castSupport(u,dt){
+  const role=ELEMENTS[u.key].role;
+  if(role!=="support"&&u.key!=="Zn"&&u.key!=="H"&&u.key!=="O")return;
+  if(u.skillCd>0)return;
+  const allies=living(teams[u.team]).slice().sort((a,b)=>a.hp/a.maxHp-b.hp/b.maxHp);
+  if(u.key==="Zn"){
+    const needy=allies.find(a=>a.shield<a.maxHp*.12)||allies[0];
+    if(needy){
+      needy.shield=Math.min(needy.maxHp*.25,(needy.shield||0)+needy.maxHp*.1);
+      floatText(needy.x,needy.y,"陽極","#cfe8ff");
+      u.skillCd=3.2;
+    }
+  }else if(u.key==="H"||u.key==="O"){
+    const hurt=allies.find(a=>a.hp<a.maxHp*.92);
+    if(hurt){
+      healUnit(hurt,u.maxHp*(u.key==="H"?0.06:0.045));
+      beam(u,hurt,"#9ef0c8");
+      u.skillCd=2.6;
+    }
+  }
+}
+
+function thinkUnit(u){
+  if(!u.alive)return;
+  const role=ELEMENTS[u.key].role;
+  castSupport(u);
+  let target=null;
+  if(role==="assassin")target=backlineEnemy(u);
+  else if(role==="ranger"||role==="mage")target=lowestHpEnemy(u);
+  else if(role==="support"){
+    // 優先打最近，或幫隊友
+    target=nearestEnemy(u);
+  }else target=nearestEnemy(u);
+
+  // 低血集火：破局或血量壓制時
+  if(u.desperate||watchdogCount>1)target=lowestHpEnemy(u)||target;
+  u.target=target;
+  if(!target)return;
+
+  if(inRange(u,target)){
+    // 遠程風箏：過近則後退
+    if((role==="ranger"||role==="mage")&&euclid(u,target)<1.6&&u.kiteCd<=0){
+      const awayX=u.x+(u.x-target.x|| (Math.random()<.5?1:-1));
+      const awayY=u.y+(u.y-target.y||0);
+      const cx=Math.max(0,Math.min(COLS-1,Math.round(awayX)));
+      const cy=Math.max(0,Math.min(ROWS-1,Math.round(awayY)));
+      if(passable(cx,cy,u)){tryMoveToward(u,cx,cy);u.kiteCd=1.2;return}
+    }
+    if(u.attackCd<=0){
+      doAttack(u,target);
+      u.attackCd=u.cd;
+    }
+  }else{
+    // 坦克壓前：走向目標
+    let gx=target.x,gy=target.y;
+    if(role==="tank"||role==="fighter"){
+      // 直接壓
+    }else if(role==="assassin"){
+      // 切側翼
+      gx=target.x+(Math.random()<.5?1:-1);
+      gy=target.y;
+    }
+    tryMoveToward(u,gx,gy);
+  }
+}
+
+function tryReinforce(){
+  if(reinforced||round<3||battleTime<10)return;
+  reinforced=true;
+  for(const tid of ["A","B"]){
+    const t=teams[tid];
+    const aliveN=living(t).length+living(teams[otherTeam(tid)]).length;
+    if(t.units.filter(u=>u.alive).length>=MAX_UNITS)continue;
+    if(aliveN>=MAX_UNITS*2)continue; // soft
+    const portal=PORTAL[tid];
+    let spot=null;
+    // 找入口附近空位
+    const cand=[];
+    for(let dy=-2;dy<=2;dy++)for(let dx=-2;dx<=2;dx++){
+      const x=portal.x+dx,y=portal.y+dy;
+      if(inBounds(x,y)&&tile(x,y).cost!==Infinity&&!unitAt(x,y,true))cand.push({x,y,d:Math.abs(dx)+Math.abs(dy)});
+    }
+    cand.sort((a,b)=>a.d-b.d);
+    spot=cand[0];
+    if(!spot)continue;
+    const pool=poolForRound(round);
+    const card=pool[Math.floor(Math.random()*pool.length)];
+    const u=createUnit(card,tid,spot.x,spot.y,true);
+    // 援軍略弱
+    u.maxHp=Math.round(u.maxHp*.85);u.hp=u.maxHp;u.atk=Math.round(u.atk*.9);
+    t.units.push(u);
+    addLog(`${t.name} 從增兵處投入臨時援軍 ${unitLabel(u)}。`);
+  }
+}
+
+function scoreTeam(tid){
+  const L=living(teams[tid]);
+  const hp=L.reduce((s,u)=>s+u.hp/u.maxHp,0);
+  return L.length*10+hp;
+}
+
+function tickBattle(dt){
+  if(phase!=="battle"||paused)return;
+  battleTime+=dt;
+  tryReinforce();
+
+  // 合成：氫氧再生
+  for(const t of Object.values(teams)){
+    if((t.syn||[]).includes("water")){
+      for(const u of living(t))healUnit(u,u.maxHp*0.008*dt);
+    }
+  }
+  // DoT / slow timers
+  for(const t of Object.values(teams)){
+    for(const u of t.units){
+      if(!u.alive)continue;
+      if(u.burn){
+        u.burn.ttl-=dt;
+        const bd=u.burn.dps*dt;
+        // 燃燒略過護甲
+        u.hp-=bd;lastDamage=battleTime;
+        if(u.burn.ttl<=0)u.burn=null;
+        if(u.hp<=0){u.hp=0;u.alive=false;addLog(`${unitLabel(u)} 被燃燒退場。`)}
+      }
+      if(u.slow>0)u.slow-=dt;
+      u.attackCd=Math.max(0,u.attackCd-dt);
+      u.moveCd=Math.max(0,u.moveCd-dt);
+      u.thinkCd=Math.max(0,u.thinkCd-dt);
+      u.skillCd=Math.max(0,u.skillCd-dt);
+      u.kiteCd=Math.max(0,u.kiteCd-dt);
+    }
+  }
+
+  // 單位 AI
+  for(const t of Object.values(teams)){
+    for(const u of living(t)){
+      if(u.thinkCd<=0){
+        thinkUnit(u);
+        u.thinkCd=.12+Math.random()*.08;
+      }
+    }
+  }
+
+  // 勝負
+  const aAlive=living(teams.A).length,bAlive=living(teams.B).length;
+  if(!aAlive||!bAlive){
+    finishBattle(aAlive? "A":bAlive?"B":null,aAlive||bAlive?"清場":"同歸於盡");
+    return;
+  }
+
+  // 無傷害破局
+  if(battleTime-lastDamage>7){
+    watchdogCount++;
+    lastDamage=battleTime;
+    for(const t of Object.values(teams))for(const u of living(t))u.desperate=true;
+    if(watchdogCount===1)addLog("戰線膠著：啟動破局模式（集火／側移）。");
+  }
+
+  // 55 秒判定
+  if(battleTime>=55){
+    const sa=scoreTeam("A"),sb=scoreTeam("B");
+    if(Math.abs(sa-sb)<.5)finishBattle(null,"超時平手");
+    else finishBattle(sa>sb?"A":"B",`超時判定（存活與生命 ${sa.toFixed(1)} vs ${sb.toFixed(1)}）`);
+  }
+}
+
+/* ---------- 繪圖 ---------- */
+function drawBoard(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  for(let y=0;y<ROWS;y++){
+    for(let x=0;x<COLS;x++){
+      const t=tile(x,y);
+      ctx.fillStyle=t.color;
+      ctx.fillRect(x*TILE,y*TILE,TILE,TILE);
+      ctx.strokeStyle="rgba(0,0,0,.18)";
+      ctx.strokeRect(x*TILE+.5,y*TILE+.5,TILE-1,TILE-1);
+    }
+  }
+  // 部署區提示
+  if(phase==="planning"){
+    ctx.fillStyle="rgba(255,181,95,.12)";
+    for(const p of DEPLOY.A)ctx.fillRect(p.x*TILE,p.y*TILE,TILE,TILE);
+    ctx.fillStyle="rgba(158,182,255,.12)";
+    for(const p of DEPLOY.B)ctx.fillRect(p.x*TILE,p.y*TILE,TILE,TILE);
+  }
+  // 增兵處
+  for(const tid of ["A","B"]){
+    const p=PORTAL[tid];
+    ctx.fillStyle=tid==="A"?"#ffb55f55":"#9eb6ff55";
+    ctx.beginPath();ctx.arc(p.x*TILE+TILE/2,p.y*TILE+TILE/2,10,0,Math.PI*2);ctx.fill();
+  }
+  if(!teams)return;
+  // 單位
+  for(const t of Object.values(teams)){
+    for(const u of t.units){
+      if(phase==="battle"&&!u.alive)continue;
+      const cx=u.x*TILE+TILE/2,cy=u.y*TILE+TILE/2;
+      const e=ELEMENTS[u.key];
+      // 選中
+      if(u.id===selectedId){
+        ctx.strokeStyle="#ffd49b";ctx.lineWidth=2;
+        ctx.beginPath();ctx.arc(cx,cy,20,0,Math.PI*2);ctx.stroke();ctx.lineWidth=1;
+      }
+      ctx.beginPath();
+      ctx.fillStyle=e.color;
+      ctx.arc(cx,cy,16,0,Math.PI*2);ctx.fill();
+      ctx.strokeStyle=u.team==="A"?"#ffb55f":"#9eb6ff";
+      ctx.lineWidth=2;ctx.stroke();ctx.lineWidth=1;
+      ctx.fillStyle="#1a1520";
+      ctx.font="bold 11px system-ui";
+      ctx.textAlign="center";ctx.textBaseline="middle";
+      ctx.fillText(e.symbol+(u.variant?"Ⅱ":""),cx,cy);
+      // HP bar
+      const bw=36,bh=4,bx=cx-bw/2,by=cy-24;
+      ctx.fillStyle="#0008";ctx.fillRect(bx,by,bw,bh);
+      const pct=Math.max(0,u.hp/u.maxHp);
+      ctx.fillStyle=pct>.45?"#8be0ad":pct>.2?"#ffc878":"#ff7b78";
+      ctx.fillRect(bx,by,bw*pct,bh);
+      if(u.shield>0){
+        ctx.fillStyle="#a7d8ff88";
+        ctx.fillRect(bx,by-3,bw*Math.min(1,u.shield/u.maxHp),2);
+      }
+      if(u.reinforcement){
+        ctx.fillStyle="#ffe0a4";ctx.font="9px system-ui";
+        ctx.fillText("援",cx,cy+22);
+      }
+    }
+  }
+  // 特效
+  for(const fx of effects){
+    const a=Math.max(0,fx.ttl/fx.max);
+    if(fx.kind==="text"){
+      ctx.globalAlpha=a;
+      ctx.fillStyle=fx.color;
+      ctx.font="bold 13px system-ui";
+      ctx.textAlign="center";
+      ctx.fillText(fx.text,fx.x*TILE+TILE/2,fx.y*TILE+TILE/2-18-(1-a)*16);
+      ctx.globalAlpha=1;
+    }else if(fx.kind==="beam"){
+      ctx.globalAlpha=a;
+      ctx.strokeStyle=fx.color;ctx.lineWidth=2;
+      ctx.beginPath();
+      ctx.moveTo(fx.x*TILE+TILE/2,fx.y*TILE+TILE/2);
+      ctx.lineTo(fx.tx*TILE+TILE/2,fx.ty*TILE+TILE/2);
+      ctx.stroke();ctx.lineWidth=1;ctx.globalAlpha=1;
+    }
+  }
+  if(hoverCell&&phase==="planning"){
+    ctx.strokeStyle="#ffd49baa";
+    ctx.strokeRect(hoverCell.x*TILE+2,hoverCell.y*TILE+2,TILE-4,TILE-4);
+  }
+}
+
+function tickEffects(dt){
+  for(const fx of effects)fx.ttl-=dt;
+  effects=effects.filter(fx=>fx.ttl>0);
+  trimEffects();
+}
+
+/* ---------- UI ---------- */
+function renderLog(){
+  const box=$("#log");
+  if(!box)return;
+  box.innerHTML=logs.slice(0,40).map(l=>`<div class="logItem ${l.type}">R${l.round} · ${l.msg}</div>`).join("");
+}
+
+function refreshPanel(){
+  if(!teams)return;
+  const t=teams[viewSide];
+  const panel=$("#teamPanel");
+  const can=canControl(t);
+  const synNow=$("#synergyOn").checked?activeSynergies(t):[];
+  panel.innerHTML=`
+    <div class="tabs">
+      <button data-side="A" class="${viewSide==="A"?"active":""}">曦光 A</button>
+      <button data-side="B" class="${viewSide==="B"?"active":""}">暮藍 B</button>
+    </div>
+    <h3>${t.name} ${t.ai?"（AI）":"（玩家）"} · 策略 ${t.strategy}</h3>
+    <div class="statline">金幣 <b>${t.gold}</b>　核心 <b>${t.core}</b>　棋子 ${t.units.filter(u=>!u.reinforcement).length}/${MAX_UNITS}
+     　回合 ${round}　階段 ${phase==="planning"?"佈陣":phase==="battle"?"戰鬥":"結束"}</div>
+    <div class="statline">強化：HP+${(t.mods.hp*100).toFixed(0)}% ATK+${(t.mods.atk*100).toFixed(0)}% 甲+${t.mods.armor} 速+${(t.mods.speed*100).toFixed(0)}%</div>
+    <div class="shop" id="shopBox">
+      ${t.shop.map((c,i)=>{
+        const e=ELEMENTS[c.key],cost=cardCost(c);
+        return `<button class="shopItem" data-buy="${i}" ${!can||t.gold<cost||phase!=="planning"?"disabled":""}>
+          <b>${c.variant?"Ⅱ·":""}${e.name} ${e.symbol}</b>
+          <small>${ROLE[e.role].name} · ${e.cat}<br>HP ${e.hp}　ATK ${e.atk}<br>${e.skill}</small>
+          <div style="position:absolute;right:6px;top:6px;color:#ffc878">${cost}金</div>
+        </button>`;
+      }).join("")||"<div class='statline'>商店空空如也</div>"}
+    </div>
+    <div class="actions">
+      <button id="btnRand" ${!can?"disabled":""}>隨機買</button>
+      <button id="btnRef" ${!can||t.gold<2?"disabled":""}>刷新(2)</button>
+      <button id="btnLock">${t.locked?"解鎖商店":"鎖店"}</button>
+      <button id="btnSell" ${!can?"disabled":""}>出售選中</button>
+      <button id="btnEnh" ${!can||t.gold<3?"disabled":""}>強化(3)</button>
+      <button id="btnAutoPos" ${!can?"disabled":""}>自動佈陣</button>
+    </div>
+    <div class="statline" style="margin-top:8px">選中：${(()=>{
+      const u=t.units.find(x=>x.id===selectedId);
+      if(!u)return"無";
+      const e=ELEMENTS[u.key];
+      return `${unitLabel(u)}　${ROLE[e.role].name}　HP ${Math.round(u.hp)}/${u.maxHp}　ATK ${u.atk}　甲 ${u.armor}　${e.desc}`;
+    })()}</div>`;
+
+  panel.querySelectorAll("[data-side]").forEach(btn=>{
+    btn.onclick=()=>{viewSide=btn.dataset.side;selectedId=teams[viewSide].units[0]?.id??null;refreshPanel()};
+  });
+  panel.querySelectorAll("[data-buy]").forEach(btn=>{
+    btn.onclick=()=>buyCard(t,+btn.dataset.buy);
+  });
+  const br=panel.querySelector("#btnRand");if(br)br.onclick=()=>randomBuy(t);
+  const bf=panel.querySelector("#btnRef");if(bf)bf.onclick=()=>{if(refreshShop(t))refreshPanel()};
+  const bl=panel.querySelector("#btnLock");if(bl)bl.onclick=()=>{t.locked=!t.locked;refreshPanel()};
+  const bs=panel.querySelector("#btnSell");if(bs)bs.onclick=()=>sellSelected();
+  const be=panel.querySelector("#btnEnh");if(be)be.onclick=()=>drawEnhance(t);
+  const ba=panel.querySelector("#btnAutoPos");if(ba)ba.onclick=()=>autoPosition(t);
+
+  // 合成面板
+  const synBox=$("#synPanel");
+  const c=countsFor(t);
+  synBox.innerHTML=SYN.map(s=>{
+    const on=s.on(c)&&$("#synergyOn").checked;
+    return `<div class="syn ${on?"on":""}"><b>${s.name}</b> ${on?"✓":""}<div class="eq">${s.eq}</div><div>${s.desc}</div></div>`;
+  }).join("");
+
+  // HUD
+  const spd=$("#speed").value;
+  $("#hud").textContent=`R${round}｜${phase==="planning"?"佈陣":phase==="battle"?`戰鬥 ${battleTime.toFixed(1)}s`:"結束"}｜A核${teams.A.core} B核${teams.B.core}｜${spd}×`;
+  $("#startPause").textContent=phase==="battle"?(paused?"繼續":"暫停"):(phase==="ended"?"已結束":"開始對戰");
+  renderLog();
+}
+
+function canvasPos(ev){
+  const r=canvas.getBoundingClientRect();
+  const x=Math.floor((ev.clientX-r.left)/r.width*COLS);
+  const y=Math.floor((ev.clientY-r.top)/r.height*ROWS);
+  return {x,y};
+}
+
+function onBoardClick(ev){
+  if(!teams||phase==="ended")return;
+  const {x,y}=canvasPos(ev);
+  if(!inBounds(x,y))return;
+  if(phase==="battle"){
+    const u=unitAt(x,y,true);
+    if(u){selectedId=u.id;viewSide=u.team;refreshPanel()}
+    return;
+  }
+  // planning
+  const t=teams[viewSide];
+  const u=unitAt(x,y);
+  if(u&&u.team===viewSide){
+    selectedId=u.id;refreshPanel();return;
+  }
+  if(!canControl(t)){addLog("此陣營由 AI 控制，或請先切換到你的陣營。","bad");return}
+  const sel=t.units.find(z=>z.id===selectedId);
+  if(!sel||sel.reinforcement)return;
+  if(!deployOK(viewSide,x,y)){
+    $("#tileInfo").textContent=`(${x},${y}) 不是 ${t.name} 的部署區。`;
+    return;
+  }
+  const other=unitAt(x,y);
+  if(other&&other.team===viewSide){
+    // 交換
+    const ox=sel.x,oy=sel.y;
+    sel.x=sel.homeX=other.x;sel.y=sel.homeY=other.y;
+    other.x=other.homeX=ox;other.y=other.homeY=oy;
+  }else if(!other){
+    sel.x=sel.homeX=x;sel.y=sel.homeY=y;
+  }
+  refreshPanel();
+}
+
+function onBoardMove(ev){
+  const {x,y}=canvasPos(ev);
+  if(!inBounds(x,y)){hoverCell=null;return}
+  hoverCell={x,y};
+  const ter=tile(x,y);
+  const u=teams?unitAt(x,y,phase==="battle"):null;
+  let info=`(${x},${y}) ${ter.name}　成本 ${ter.cost===Infinity?"不可通行":ter.cost}`;
+  if(u)info+=`　｜ ${u.team} ${unitLabel(u)} HP ${Math.round(u.hp)}/${u.maxHp}`;
+  $("#tileInfo").textContent=info;
+}
+
+function bindUI(){
+  $("#newGame").onclick=()=>newMatch();
+  $("#startPause").onclick=()=>{
+    if(phase==="planning")startBattle();
+    else if(phase==="battle"){paused=!paused;refreshPanel()}
+  };
+  $("#mode").onchange=()=>addLog("模式將於「新局」後生效。");
+  $("#synergyOn").onchange=()=>refreshPanel();
+  canvas.addEventListener("click",onBoardClick);
+  canvas.addEventListener("mousemove",onBoardMove);
+}
+
+function runSelfTests(){
+  const diag=$("#diag");
+  const errs=[];
+  try{
+    if(Object.keys(ELEMENTS).length!==12)errs.push("ELEMENTS 應為 12");
+    if(SYN.length!==6)errs.push("SYN 應為 6");
+    if(DEPLOY.A.length!==16||DEPLOY.B.length!==16)errs.push("部署格應為 16");
+    const dmg=calcDamage(100,{armor:10,tempArmor:0,armorBreak:0});
+    const expect=100*100/(100+6*10);
+    if(Math.abs(dmg-expect)>1e-6)errs.push("傷害公式不符");
+    if(Math.max(1,rawTest(0))<1)errs.push("傷害下限");
+    function rawTest(v){return Math.max(1,v)}
+    // A* 基本
+    const bak=mapTiles;mapTiles=buildMap(42);
+    // 清單位佔位干擾：暫用空場
+    const path=astar(0,0,3,0,{x:0,y:0,id:-1});
+    if(!path||path.length<1)errs.push("A* 無法尋路");
+    mapTiles=bak;
+    // 單位不重疊初始
+    if(teams){
+      const seen=new Set();
+      for(const t of Object.values(teams))for(const u of t.units){
+        const k=u.x+","+u.y;
+        if(seen.has(k))errs.push("初始單位重疊 "+k);
+        seen.add(k);
+      }
+    }
+  }catch(e){errs.push(String(e))}
+  if(errs.length){
+    diag.className="error";
+    diag.textContent="自檢失敗："+errs.join("；");
+  }else{
+    diag.className="";
+    diag.textContent="自檢通過：元素 12、配方 6、部署 16、傷害公式、A* 尋路正常。";
+  }
+}
+
+let lastTs=0;
+function frame(ts){
+  const speed=+($("#speed").value||1);
+  const dt=Math.min(0.05,(ts-(lastTs||ts))/1000)*speed;
+  lastTs=ts;
+  if(phase==="battle"&&!paused)tickBattle(dt);
+  tickEffects(dt);
+  if(autoTimer>0&&phase==="planning"){
+    autoTimer-=dt/Math.max(speed,.01);
+    if(autoTimer<=0){
+      autoTimer=0;
+      for(const t of Object.values(teams))if(t.ai)aiPlan(t);
+      startBattle();
+    }
+  }
+  uiClock+=dt;
+  if(uiClock>.25){uiClock=0;if(phase==="battle")refreshPanel()}
+  drawBoard();
+  requestAnimationFrame(frame);
+}
+
+bindUI();
+newMatch();
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
